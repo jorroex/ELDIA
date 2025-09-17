@@ -112,14 +112,35 @@ def descargar_track(track_id):
     
     return None
 
-# 📌 Menú principal
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# 📌 Función para obtener información de una canción
+def obtener_info_cancion(track_id):
+    try:
+        url = f"https://api.deezer.com/track/{track_id}"
+        res = requests.get(url, headers=HEADERS).json()
+        return res
+    except:
+        return None
+
+# 📌 Mostrar menú principal
+async def mostrar_menu(chat, text="👋 Hola, elige una opción:"):
     keyboard = [
         [InlineKeyboardButton("Buscar Canción 🎵", callback_data="buscar_cancion")],
         [InlineKeyboardButton("Buscar Artista 👩‍🎤", callback_data="buscar_artista")],
         [InlineKeyboardButton("Buscar Álbum 💿", callback_data="buscar_album")],
     ]
-    await update.message.reply_text("👋 Hola, elige una opción:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await chat.send_message(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+# 📌 Menú principal
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Manejar tanto mensajes directos como callback queries
+    if update.message:
+        chat = update.message.chat
+    elif update.callback_query:
+        chat = update.callback_query.message.chat
+    else:
+        return
+    
+    await mostrar_menu(chat)
 
 # 📌 Callback de menú
 async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -154,7 +175,9 @@ async def buscar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         resultados = buscar_album(query)
 
     if not resultados:
-        return await update.message.reply_text("⚠️ No se encontraron resultados. Intenta de nuevo.")
+        await update.message.reply_text("⚠️ No se encontraron resultados. Intenta de nuevo.")
+        await mostrar_menu(update.message.chat, "❌ Sin resultados. ¿Quieres buscar algo más?")
+        return
 
     keyboard = []
     for i, track in enumerate(resultados[:10], 1):
@@ -177,20 +200,48 @@ async def elegir(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
 
     if data == "volver":
-        return await start(update, context)
+        await start(update, context)
+        return
 
     if data.startswith("track_"):
         track_id = data.split("_")[1]
         await query.message.reply_text("⏳ Descargando... por favor espera...")
+        
+        # Obtener información de la canción
+        info_cancion = obtener_info_cancion(track_id)
+        
         archivo = descargar_track(track_id)
         if archivo:
             try:
+                # Preparar mensaje con información de la canción
+                if info_cancion:
+                    titulo = info_cancion.get('title', 'Desconocido')
+                    artista = info_cancion.get('artist', {}).get('name', 'Desconocido')
+                    album = info_cancion.get('album', {}).get('title', 'Desconocido')
+                    duracion = info_cancion.get('duration', 0)
+                    minutos = duracion // 60
+                    segundos = duracion % 60
+                    
+                    mensaje_info = f"🎵 **{titulo}**\n👩‍🎤 Artista: {artista}\n💿 Álbum: {album}\n⏱️ Duración: {minutos}:{segundos:02d}"
+                else:
+                    mensaje_info = "🎵 Canción descargada"
+                
                 with open(archivo, "rb") as audio_file:
-                    await query.message.reply_audio(audio_file)
+                    await query.message.reply_audio(
+                        audio_file, 
+                        caption=mensaje_info, 
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                
+                # Mostrar menú después de la descarga
+                await mostrar_menu(query.message.chat, "✅ ¡Descarga completada! ¿Qué más quieres hacer?")
+                
             except Exception as e:
                 await query.message.reply_text(f"⚠️ Error al enviar el archivo: {str(e)}")
+                await mostrar_menu(query.message.chat, "⚠️ Hubo un error. ¿Quieres intentar otra cosa?")
         else:
             await query.message.reply_text("⚠️ No se pudo descargar el archivo. Intenta de nuevo.")
+            await mostrar_menu(query.message.chat, "⚠️ No se pudo descargar. ¿Quieres intentar otra cosa?")
 
 # 📌 Registrar handlers
 application.add_handler(CommandHandler("start", start))
