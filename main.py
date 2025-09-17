@@ -4,7 +4,7 @@ import glob
 import time
 import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from telegram.constants import ParseMode
 
 # ✅ Configura aquí - Usando variables de entorno para seguridad
@@ -23,14 +23,15 @@ if not ARL:
 DOWNLOAD_DIR = "deezer_downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# Guardar ARL en el config de deemix
-os.makedirs("/root/.config/deemix", exist_ok=True)
-with open("/root/.config/deemix/arl", "w") as f:
+# Guardar ARL en el config de deemix (usando directorio local)
+config_dir = os.path.expanduser("~/.config/deemix")
+os.makedirs(config_dir, exist_ok=True)
+with open(os.path.join(config_dir, "arl"), "w") as f:
     f.write(ARL)
 
 # Aplicación de Telegram
 nest_asyncio.apply()
-application = Application.builder().token(TOKEN).build()
+application = ApplicationBuilder().token(TOKEN).build()
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
@@ -108,8 +109,11 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # 📌 Mensaje de texto según el modo
 async def buscar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    modo = context.user_data.get("modo")
-    query = update.message.text.strip()
+    if not update.message:
+        return
+        
+    modo = context.user_data.get("modo") if context.user_data else None
+    query = update.message.text.strip() if update.message.text else ""
     resultados = []
 
     if modo == "cancion":
