@@ -3,6 +3,8 @@ import nest_asyncio
 import glob
 import time
 import requests
+import json
+import subprocess
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from telegram.constants import ParseMode
@@ -23,11 +25,31 @@ if not ARL:
 DOWNLOAD_DIR = "deezer_downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# Guardar ARL en el config de deemix (usando directorio local)
+# Configurar deemix con ARL
 config_dir = os.path.expanduser("~/.config/deemix")
 os.makedirs(config_dir, exist_ok=True)
-with open(os.path.join(config_dir, "arl"), "w") as f:
-    f.write(ARL)
+
+# Configuración básica de deemix con ARL
+config_content = {
+    "arl": ARL,
+    "downloadLocation": DOWNLOAD_DIR,
+    "maxBitrate": "9",
+    "fallbackBitrate": True,
+    "createArtistFolder": True,
+    "createAlbumFolder": False,
+    "createCDFolder": False,
+    "padTracks": True,
+    "paddingSize": "0",
+    "illegalCharacterReplacer": "_",
+    "queueConcurrency": 3,
+    "overwriteFile": "y",
+    "saveArtwork": True,
+    "tracknameTemplate": "%artist% - %title%",
+    "albumTracknameTemplate": "%tracknumber% - %title%"
+}
+
+with open(os.path.join(config_dir, "config.json"), "w") as f:
+    json.dump(config_content, f, indent=2)
 
 # Aplicación de Telegram
 nest_asyncio.apply()
@@ -70,16 +92,24 @@ def descargar_track(track_id):
         except:
             pass
 
-    # Ejecutar deemix con ARL
-    os.system(f"deemix -p {DOWNLOAD_DIR} https://www.deezer.com/track/{track_id} > /dev/null 2>&1")
-
-    # Esperar hasta 40s a que aparezca el archivo
-    for _ in range(40):
+    # Ejecutar deemix con ARL enviado por stdin
+    try:
+        # Validar que track_id sea numérico para seguridad
+        if not track_id.isdigit():
+            return None
+            
+        cmd = ["deemix", "-p", DOWNLOAD_DIR, f"https://www.deezer.com/track/{track_id}"]
+        process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        stdout, stderr = process.communicate(input=ARL, timeout=120)
+        
+        # Buscar archivo descargado
         archivos = glob.glob(f"{DOWNLOAD_DIR}/**/*.*", recursive=True)
         archivos = [f for f in archivos if f.lower().endswith((".mp3", ".flac"))]
         if archivos:
             return archivos[0]
-        time.sleep(1)
+    except Exception as e:
+        print(f"Error en descarga: {e}")
+    
     return None
 
 # 📌 Menú principal
